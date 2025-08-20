@@ -73,6 +73,19 @@
             display: none;
         }
         
+        .debug-info {
+            position: absolute;
+            top: 120px;
+            right: 20px;
+            background: rgba(255, 0, 0, 0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            max-width: 200px;
+            word-wrap: break-word;
+        }
+        
         .status {
             position: absolute;
             bottom: 20px;
@@ -114,10 +127,16 @@
             <button id="startBtn">Start Camera</button>
             <button id="switchBtn" disabled>Switch Camera</button>
             <button id="selectImageBtn">Select Overlay Image</button>
-            <input type="file" id="imageInput" accept="image/*">
+            <input type="file" id="imageInput" accept="image/*" capture="user">
+            <button id="debugBtn">Show Debug Info</button>
         </div>
         
         <div class="status" id="status">Click "Start Camera" to begin</div>
+        
+        <div class="debug-info" id="debugInfo" style="display: none;">
+            <h4>Debug Info</h4>
+            <div id="debugContent"></div>
+        </div>
         
         <div class="marker-info" id="markerInfo" style="display: none;">
             <h3>Detected Markers</h3>
@@ -155,6 +174,9 @@
                 this.status = document.getElementById('status');
                 this.markerInfo = document.getElementById('markerInfo');
                 this.markerList = document.getElementById('markerList');
+                this.debugBtn = document.getElementById('debugBtn');
+                this.debugInfo = document.getElementById('debugInfo');
+                this.debugContent = document.getElementById('debugContent');
             }
             
             setupEventListeners() {
@@ -162,6 +184,7 @@
                 this.switchBtn.addEventListener('click', () => this.switchCamera());
                 this.selectImageBtn.addEventListener('click', () => this.imageInput.click());
                 this.imageInput.addEventListener('change', (e) => this.handleImageSelect(e));
+                this.debugBtn.addEventListener('click', () => this.toggleDebugInfo());
                 window.addEventListener('resize', () => this.resizeCanvas());
             }
             
@@ -181,6 +204,20 @@
             async startCamera() {
                 try {
                     this.updateStatus('Starting camera...');
+                    this.updateDebugInfo('Checking camera support...');
+                    
+                    // Check if getUserMedia is supported
+                    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                        throw new Error('getUserMedia not supported');
+                    }
+                    
+                    // Check if we're on HTTPS or localhost
+                    const isSecure = location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+                    this.updateDebugInfo(`Protocol: ${location.protocol}, Secure: ${isSecure}`);
+                    
+                    if (!isSecure) {
+                        throw new Error('Camera requires HTTPS or localhost');
+                    }
                     
                     const constraints = {
                         video: {
@@ -190,6 +227,7 @@
                         }
                     };
                     
+                    this.updateDebugInfo('Requesting camera permission...');
                     this.currentStream = await navigator.mediaDevices.getUserMedia(constraints);
                     this.video.srcObject = this.currentStream;
                     
@@ -201,11 +239,13 @@
                     this.startBtn.textContent = 'Stop Camera';
                     this.switchBtn.disabled = false;
                     this.updateStatus('Camera active - Point at ArUco markers');
+                    this.updateDebugInfo('Camera started successfully');
                     
                     this.startDetection();
                 } catch (error) {
                     console.error('Error accessing camera:', error);
-                    this.updateStatus('Error: Could not access camera');
+                    this.updateStatus(`Error: ${error.message}`);
+                    this.updateDebugInfo(`Camera error: ${error.message}`);
                 }
             }
             
@@ -388,6 +428,8 @@
             
             handleImageSelect(event) {
                 const file = event.target.files[0];
+                this.updateDebugInfo(`File selected: ${file ? file.name : 'none'}`);
+                
                 if (file && file.type.startsWith('image/')) {
                     const reader = new FileReader();
                     reader.onload = (e) => {
@@ -395,11 +437,37 @@
                         img.onload = () => {
                             this.overlayImage = img;
                             this.updateStatus(`Overlay image loaded: ${img.width}x${img.height}`);
+                            this.updateDebugInfo(`Image loaded: ${img.width}x${img.height}px`);
+                        };
+                        img.onerror = () => {
+                            this.updateDebugInfo('Failed to load image');
                         };
                         img.src = e.target.result;
                     };
+                    reader.onerror = () => {
+                        this.updateDebugInfo('Failed to read file');
+                    };
                     reader.readAsDataURL(file);
+                } else {
+                    this.updateDebugInfo('Invalid file type or no file selected');
                 }
+            }
+            
+            toggleDebugInfo() {
+                const isVisible = this.debugInfo.style.display !== 'none';
+                this.debugInfo.style.display = isVisible ? 'none' : 'block';
+                this.debugBtn.textContent = isVisible ? 'Show Debug Info' : 'Hide Debug Info';
+                
+                if (!isVisible) {
+                    this.updateDebugInfo('Debug info enabled');
+                }
+            }
+            
+            updateDebugInfo(message) {
+                const timestamp = new Date().toLocaleTimeString();
+                const currentContent = this.debugContent.innerHTML;
+                this.debugContent.innerHTML = `${currentContent}<br>[${timestamp}] ${message}`;
+                this.debugContent.scrollTop = this.debugContent.scrollHeight;
             }
             
             updateStatus(message) {
